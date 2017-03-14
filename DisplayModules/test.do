@@ -15,11 +15,12 @@ vsim -L altera_mf_ver MoleAndScore
 log {/*}
 # add wave {/*} would add all items in top level simulation module.
 add wave {/*}
+add wave {/di/*}
 
 
 force -repeat 20ns, {CLOCK_50} 0 0ns, 1 10ns
 force {molePositions} 0000000010001000100010000100111010000100;
-force {total} 0000000000000000;
+force {total} 0001001000110100;
 force {score} 0000000000000000;
 force {CLOCK_40} 0;
 force {reset} 0;
@@ -29,5 +30,16 @@ force {reset} 1;
 run 20ns
 
 force {reset} 0;
+run 20ns
+
 force {CLOCK_40} 1;
-run 10000ns
+run 20ns
+
+force {CLOCK_40} 0;
+run 100000ns
+
+force {CLOCK_40} 1;
+run 20ns
+
+force {CLOCK_40} 0;
+run 100000ns

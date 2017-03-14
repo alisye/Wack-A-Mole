@@ -67,11 +67,65 @@ module test(KEY, CLOCK_50,
 			counter <= counter + 1;
 	end
 	
+	wire [15:0] decimalcount;
+	DecimalCounter4Dig dc4d (.count(decimalcount), .clock(slowed), .reset(~KEY[1]));
+	
 	RateDivider rd40(.CO(slowed), .Clock(CLOCK_50), .Areset(resetn));
 		
-	MoleAndScore mas(.x(x), .y(y), .col(colour), .plot(writeEn), .molePositions(temp_val), .total(16'b0), .score(16'b0), .CLOCK_40(slowed), .CLOCK_50(CLOCK_50), .reset(~resetn));
+	MoleAndScore mas(.x(x), .y(y), .col(colour), .plot(writeEn), .molePositions(temp_val), .total(decimalcount), .score(16'b0001_0010_0011_0100), .CLOCK_40(slowed), .CLOCK_50(CLOCK_50), .reset(~resetn));
 	
 endmodule
+
+module DecimalCounter4Dig(count, clock, reset);
+	output [15:0] count;
+	input clock;
+	input reset;
+	
+	reg [3:0] ones;
+	reg [3:0] hundreds;
+	reg [3:0] tens;
+	reg [3:0] thousands;
+	
+	assign count = {ones, tens, hundreds, thousands};
+	
+	always @(posedge clock) begin
+		if(reset == 1'b1)
+			ones <= 4'b0;
+		else if(ones == 4'd9)
+			ones <= 4'b0;
+		else
+			ones <= ones + 1'b1;
+	end
+	
+	always @(posedge clock) begin
+		if(reset == 1'b1)
+			tens <= 4'b0;
+		else if(ones == 4'd9 && tens == 4'd9)
+			tens <= 4'b0;
+		else if(ones == 4'd9)
+			tens <= tens + 1'b1;
+	end
+	
+	always @(posedge clock) begin
+		if(reset == 1'b1 )
+			hundreds <= 4'b0;
+		else if({hundreds, tens, ones} == 12'b1001_1001_1001)
+			hundreds <= 4'b0;
+		else if(tens == 4'd9 && ones == 4'd9)
+			hundreds <= hundreds + 1'b1;
+	end
+	
+	always @(posedge clock) begin
+		if(reset == 1'b1)
+			thousands <= 4'b0;
+		if({thousands, hundreds, tens, ones} == 16'b1001_1001_1001_1001)
+			thousands <= 4'b0;
+		else if(hundreds == 4'd9 && tens == 4'd9 && ones == 4'd9)
+			thousands <= thousands + 1'b1;
+	end
+
+endmodule
+
 
 //temporarily reused
 module RateDivider(CO, Clock, Areset);
@@ -93,6 +147,7 @@ module RateDivider(CO, Clock, Areset);
 	end	
 endmodule
 
+//Note: should probably latch total and score. Will try w/o and add latches if doesn't work.
 module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOCK_50, reset);
 	output reg [7:0] x;
 	output reg [6:0] y;
@@ -106,7 +161,7 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 	input CLOCK_50; //50MHz clock
 	input reset;
 	
-	localparam  STOP_VAL = 5'b01001,
+	localparam  STOP_VAL = 5'b10001,
 				TS = 5'b01000;
 	
 	reg [4:0] curr_obj; // 0 to STOP_VAL.
@@ -115,6 +170,73 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 	reg [8:0] pastmoleYX;
 	reg [4:0] currMoleShift;
 	reg go;
+	
+	reg [2:0] digX;
+	reg [2:0] pastdigX;
+	reg [3:0] digY;
+	reg [3:0] pastdigY;
+	reg [5:0] addressdig;
+	
+	always @(posedge CLOCK_50) begin
+		if(reset == 1'b1 || go == 1'b0 || curr_obj[4:0] < 5'b01001)
+			begin
+			digX <= 3'b0;
+			pastdigX <= 3'b0;
+			
+			digY <= 4'b0;
+			pastdigY <= 4'b0;
+			
+			addressdig <= 6'b0;
+			end
+		else if (go == 1'b1 && digX == 3'd5 && digY == 4'd9)
+			begin
+			pastdigX <= digX;
+			digX <= 3'b0; //reset at max
+			
+			pastdigY <= digY;
+			digY <= 4'b0; //reset at max
+			
+			addressdig <= 6'b0; //reset at max
+			end
+		else if (go == 1'b1 && digX == 3'd5)
+			begin
+			pastdigX <= digX;
+			digX <= 3'b0; //reset at max
+			
+			pastdigY <= digY;
+			digY <= digY + 1'b1;
+			
+			addressdig <= addressdig + 1'b1;
+			end
+		else if (go == 1'b1)
+			begin
+			pastdigX <= digX;
+			digX <= digX + 1'b1; //incr if curr_obj is a digit
+			
+			pastdigY <= digY;
+			
+			addressdig <= addressdig + 1'b1;
+			end
+	end
+	
+	reg [3:0] currdig;
+	always @(*) begin
+		case (curr_obj)
+			5'b01001: currdig = total [3:0];
+			5'b01010: currdig = total [7:4];
+			5'b01011: currdig = total [11:8];
+			5'b01100: currdig = total [15:12];
+			5'b01101: currdig = score [3:0];
+			5'b01110: currdig = score [7:4];
+			5'b01111: currdig = score [11:8];
+			5'b10000: currdig = score [15:12];
+			default: currdig = 4'b1111;
+		endcase
+	end
+	
+	wire [2:0] delayeddig;
+	digit_info di (.digit(currdig), .address(addressdig), .clock(CLOCK_50), .q(delayeddig), .reset(reset));
+	
 	
 	reg [3:0] tsX;
 	reg [4:0] tsY;
@@ -222,7 +344,9 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 			curr_obj <= curr_obj + 1'b1;
 		else if (tsX == 4'd9 && tsY == 5'd21)
 			curr_obj <= curr_obj + 1'b1;
-		//later add cases for 01001 and higher
+		else if (digX == 3'd5 && digY == 4'd9)
+			curr_obj <= curr_obj + 1'b1;
+		//no cases for 10001 and higher
 	end 
 	
 	always @(posedge CLOCK_50) begin
@@ -248,6 +372,20 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 			end
 		else if(prev_curr_obj[4:0] == TS)
 			x = 8'd58 + pasttsX;
+		else if(prev_curr_obj > 5'b01000 && prev_curr_obj < STOP_VAL)
+			begin
+				case(prev_curr_obj)
+					5'b01001: x = pastdigX[2:0] + 8'd70;
+					5'b01010: x = pastdigX[2:0] + 8'd78;
+					5'b01011: x = pastdigX[2:0] + 8'd86;
+					5'b01100: x = pastdigX[2:0] + 8'd94;
+					5'b01101: x = pastdigX[2:0] + 8'd70;
+					5'b01110: x = pastdigX[2:0] + 8'd78;
+					5'b01111: x = pastdigX[2:0] + 8'd86;
+					5'b10000: x = pastdigX[2:0] + 8'd94;
+					default: x = 8'b11111111;
+				endcase
+			end
 		else
 			x = 8'b0;
 	end
@@ -257,6 +395,10 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 				y [6:0]= 7'd100 + pastmoleYX[8:4];
 		else if(prev_curr_obj[4:0] == TS)
 			y = 7'd20 + pasttsY;
+		else if(prev_curr_obj > 5'b01000 && prev_curr_obj < 5'b01101)
+			y = 7'd20 + pastdigY;
+		else if (prev_curr_obj < STOP_VAL)
+			y = 7'd32 + pastdigY;	
 		else
 			y [6:0]= 7'b0;
 	end
@@ -266,11 +408,765 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 				col [2:0] = delayedMoleImage[2:0];
 		else if(prev_curr_obj[4:0] == TS)
 			col [2:0] = delayedTS[2:0];
+		else if(prev_curr_obj > TS && prev_curr_obj < STOP_VAL)
+			col [2:0] = delayeddig;
 		else
 			col [2:0] = 3'b0;
 	end
 
 endmodule
+
+//Note: make sure to register input for which #'s
+//Note: 1 cycle delay from address to q
+//Note: reset and let some clock cycles pass (also, address must change on same clock)
+module digit_info(digit, address, clock, q, reset);
+	input	[3:0] digit;
+	input	[5:0] address;
+	input	  clock;
+	input reset;
+	output reg [2:0] q;
+	
+	reg [3:0] prev_digit;
+	
+	wire [2:0] q0, q1, q2, q3, q4, q5, q6, q7, q8, q9;
+	
+	Ram0 r0 (.address(address), .clock(clock), .data(3'b0), .wren(1'b0), .q(q0));
+	Ram1 r1 (.address(address), .clock(clock), .data(3'b0), .wren(1'b0), .q(q1));
+	Ram2 r2 (.address(address), .clock(clock), .data(3'b0), .wren(1'b0), .q(q2));
+	Ram3 r3 (.address(address), .clock(clock), .data(3'b0), .wren(1'b0), .q(q3));
+	Ram4 r4 (.address(address), .clock(clock), .data(3'b0), .wren(1'b0), .q(q4));
+	Ram5 r5 (.address(address), .clock(clock), .data(3'b0), .wren(1'b0), .q(q5));
+	Ram6 r6 (.address(address), .clock(clock), .data(3'b0), .wren(1'b0), .q(q6));
+	Ram7 r7 (.address(address), .clock(clock), .data(3'b0), .wren(1'b0), .q(q7));
+	Ram8 r8 (.address(address), .clock(clock), .data(3'b0), .wren(1'b0), .q(q8));
+	Ram9 r9 (.address(address), .clock(clock), .data(3'b0), .wren(1'b0), .q(q9));
+	
+	always @(posedge clock) begin
+		if(reset == 1'b1)
+			prev_digit <= 4'b1111;
+		else
+			prev_digit <= digit;
+	end
+	
+	always @(*) begin
+		case(prev_digit)
+			4'b0000: q = q0;
+			4'b0001: q = q1;
+			4'b0010: q = q2;
+			4'b0011: q = q3;
+			4'b0100: q = q4;
+			4'b0101: q = q5;
+			4'b0110: q = q6;
+			4'b0111: q = q7;
+			4'b1000: q = q8;
+			4'b1001: q = q9;
+			default: q = 3'b0;
+		endcase
+	end
+
+endmodule
+
+// synopsys translate_off
+`timescale 1 ps / 1 ps
+// synopsys translate_on
+module Ram0 (
+	address,
+	clock,
+	data,
+	wren,
+	q);
+
+	input	[5:0]  address;
+	input	  clock;
+	input	[2:0]  data;
+	input	  wren;
+	output	[2:0]  q;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_off
+`endif
+	tri1	  clock;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_on
+`endif
+
+	wire [2:0] sub_wire0;
+	wire [2:0] q = sub_wire0[2:0];
+
+	altsyncram	altsyncram_component (
+				.address_a (address),
+				.clock0 (clock),
+				.data_a (data),
+				.wren_a (wren),
+				.q_a (sub_wire0),
+				.aclr0 (1'b0),
+				.aclr1 (1'b0),
+				.address_b (1'b1),
+				.addressstall_a (1'b0),
+				.addressstall_b (1'b0),
+				.byteena_a (1'b1),
+				.byteena_b (1'b1),
+				.clock1 (1'b1),
+				.clocken0 (1'b1),
+				.clocken1 (1'b1),
+				.clocken2 (1'b1),
+				.clocken3 (1'b1),
+				.data_b (1'b1),
+				.eccstatus (),
+				.q_b (),
+				.rden_a (1'b1),
+				.rden_b (1'b1),
+				.wren_b (1'b0));
+	defparam
+		altsyncram_component.clock_enable_input_a = "BYPASS",
+		altsyncram_component.clock_enable_output_a = "BYPASS",
+		altsyncram_component.init_file = "0.colour.mif",
+		altsyncram_component.intended_device_family = "Cyclone V",
+		altsyncram_component.lpm_hint = "ENABLE_RUNTIME_MOD=NO",
+		altsyncram_component.lpm_type = "altsyncram",
+		altsyncram_component.numwords_a = 60,
+		altsyncram_component.operation_mode = "SINGLE_PORT",
+		altsyncram_component.outdata_aclr_a = "NONE",
+		altsyncram_component.outdata_reg_a = "UNREGISTERED",
+		altsyncram_component.power_up_uninitialized = "FALSE",
+		altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
+		altsyncram_component.widthad_a = 6,
+		altsyncram_component.width_a = 3,
+		altsyncram_component.width_byteena_a = 1;
+
+
+endmodule
+
+// synopsys translate_off
+`timescale 1 ps / 1 ps
+// synopsys translate_on
+module Ram1 (
+	address,
+	clock,
+	data,
+	wren,
+	q);
+
+	input	[5:0]  address;
+	input	  clock;
+	input	[2:0]  data;
+	input	  wren;
+	output	[2:0]  q;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_off
+`endif
+	tri1	  clock;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_on
+`endif
+
+	wire [2:0] sub_wire0;
+	wire [2:0] q = sub_wire0[2:0];
+
+	altsyncram	altsyncram_component (
+				.address_a (address),
+				.clock0 (clock),
+				.data_a (data),
+				.wren_a (wren),
+				.q_a (sub_wire0),
+				.aclr0 (1'b0),
+				.aclr1 (1'b0),
+				.address_b (1'b1),
+				.addressstall_a (1'b0),
+				.addressstall_b (1'b0),
+				.byteena_a (1'b1),
+				.byteena_b (1'b1),
+				.clock1 (1'b1),
+				.clocken0 (1'b1),
+				.clocken1 (1'b1),
+				.clocken2 (1'b1),
+				.clocken3 (1'b1),
+				.data_b (1'b1),
+				.eccstatus (),
+				.q_b (),
+				.rden_a (1'b1),
+				.rden_b (1'b1),
+				.wren_b (1'b0));
+	defparam
+		altsyncram_component.clock_enable_input_a = "BYPASS",
+		altsyncram_component.clock_enable_output_a = "BYPASS",
+		altsyncram_component.init_file = "1.colour.mif",
+		altsyncram_component.intended_device_family = "Cyclone V",
+		altsyncram_component.lpm_hint = "ENABLE_RUNTIME_MOD=NO",
+		altsyncram_component.lpm_type = "altsyncram",
+		altsyncram_component.numwords_a = 60,
+		altsyncram_component.operation_mode = "SINGLE_PORT",
+		altsyncram_component.outdata_aclr_a = "NONE",
+		altsyncram_component.outdata_reg_a = "UNREGISTERED",
+		altsyncram_component.power_up_uninitialized = "FALSE",
+		altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
+		altsyncram_component.widthad_a = 6,
+		altsyncram_component.width_a = 3,
+		altsyncram_component.width_byteena_a = 1;
+
+
+endmodule
+
+// synopsys translate_off
+`timescale 1 ps / 1 ps
+// synopsys translate_on
+module Ram2 (
+	address,
+	clock,
+	data,
+	wren,
+	q);
+
+	input	[5:0]  address;
+	input	  clock;
+	input	[2:0]  data;
+	input	  wren;
+	output	[2:0]  q;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_off
+`endif
+	tri1	  clock;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_on
+`endif
+
+	wire [2:0] sub_wire0;
+	wire [2:0] q = sub_wire0[2:0];
+
+	altsyncram	altsyncram_component (
+				.address_a (address),
+				.clock0 (clock),
+				.data_a (data),
+				.wren_a (wren),
+				.q_a (sub_wire0),
+				.aclr0 (1'b0),
+				.aclr1 (1'b0),
+				.address_b (1'b1),
+				.addressstall_a (1'b0),
+				.addressstall_b (1'b0),
+				.byteena_a (1'b1),
+				.byteena_b (1'b1),
+				.clock1 (1'b1),
+				.clocken0 (1'b1),
+				.clocken1 (1'b1),
+				.clocken2 (1'b1),
+				.clocken3 (1'b1),
+				.data_b (1'b1),
+				.eccstatus (),
+				.q_b (),
+				.rden_a (1'b1),
+				.rden_b (1'b1),
+				.wren_b (1'b0));
+	defparam
+		altsyncram_component.clock_enable_input_a = "BYPASS",
+		altsyncram_component.clock_enable_output_a = "BYPASS",
+		altsyncram_component.init_file = "2.colour.mif",
+		altsyncram_component.intended_device_family = "Cyclone V",
+		altsyncram_component.lpm_hint = "ENABLE_RUNTIME_MOD=NO",
+		altsyncram_component.lpm_type = "altsyncram",
+		altsyncram_component.numwords_a = 60,
+		altsyncram_component.operation_mode = "SINGLE_PORT",
+		altsyncram_component.outdata_aclr_a = "NONE",
+		altsyncram_component.outdata_reg_a = "UNREGISTERED",
+		altsyncram_component.power_up_uninitialized = "FALSE",
+		altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
+		altsyncram_component.widthad_a = 6,
+		altsyncram_component.width_a = 3,
+		altsyncram_component.width_byteena_a = 1;
+
+
+endmodule
+
+// synopsys translate_off
+`timescale 1 ps / 1 ps
+// synopsys translate_on
+module Ram3 (
+	address,
+	clock,
+	data,
+	wren,
+	q);
+
+	input	[5:0]  address;
+	input	  clock;
+	input	[2:0]  data;
+	input	  wren;
+	output	[2:0]  q;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_off
+`endif
+	tri1	  clock;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_on
+`endif
+
+	wire [2:0] sub_wire0;
+	wire [2:0] q = sub_wire0[2:0];
+
+	altsyncram	altsyncram_component (
+				.address_a (address),
+				.clock0 (clock),
+				.data_a (data),
+				.wren_a (wren),
+				.q_a (sub_wire0),
+				.aclr0 (1'b0),
+				.aclr1 (1'b0),
+				.address_b (1'b1),
+				.addressstall_a (1'b0),
+				.addressstall_b (1'b0),
+				.byteena_a (1'b1),
+				.byteena_b (1'b1),
+				.clock1 (1'b1),
+				.clocken0 (1'b1),
+				.clocken1 (1'b1),
+				.clocken2 (1'b1),
+				.clocken3 (1'b1),
+				.data_b (1'b1),
+				.eccstatus (),
+				.q_b (),
+				.rden_a (1'b1),
+				.rden_b (1'b1),
+				.wren_b (1'b0));
+	defparam
+		altsyncram_component.clock_enable_input_a = "BYPASS",
+		altsyncram_component.clock_enable_output_a = "BYPASS",
+		altsyncram_component.init_file = "3.colour.mif",
+		altsyncram_component.intended_device_family = "Cyclone V",
+		altsyncram_component.lpm_hint = "ENABLE_RUNTIME_MOD=NO",
+		altsyncram_component.lpm_type = "altsyncram",
+		altsyncram_component.numwords_a = 60,
+		altsyncram_component.operation_mode = "SINGLE_PORT",
+		altsyncram_component.outdata_aclr_a = "NONE",
+		altsyncram_component.outdata_reg_a = "UNREGISTERED",
+		altsyncram_component.power_up_uninitialized = "FALSE",
+		altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
+		altsyncram_component.widthad_a = 6,
+		altsyncram_component.width_a = 3,
+		altsyncram_component.width_byteena_a = 1;
+
+
+endmodule
+
+// synopsys translate_off
+`timescale 1 ps / 1 ps
+// synopsys translate_on
+module Ram4 (
+	address,
+	clock,
+	data,
+	wren,
+	q);
+
+	input	[5:0]  address;
+	input	  clock;
+	input	[2:0]  data;
+	input	  wren;
+	output	[2:0]  q;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_off
+`endif
+	tri1	  clock;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_on
+`endif
+
+	wire [2:0] sub_wire0;
+	wire [2:0] q = sub_wire0[2:0];
+
+	altsyncram	altsyncram_component (
+				.address_a (address),
+				.clock0 (clock),
+				.data_a (data),
+				.wren_a (wren),
+				.q_a (sub_wire0),
+				.aclr0 (1'b0),
+				.aclr1 (1'b0),
+				.address_b (1'b1),
+				.addressstall_a (1'b0),
+				.addressstall_b (1'b0),
+				.byteena_a (1'b1),
+				.byteena_b (1'b1),
+				.clock1 (1'b1),
+				.clocken0 (1'b1),
+				.clocken1 (1'b1),
+				.clocken2 (1'b1),
+				.clocken3 (1'b1),
+				.data_b (1'b1),
+				.eccstatus (),
+				.q_b (),
+				.rden_a (1'b1),
+				.rden_b (1'b1),
+				.wren_b (1'b0));
+	defparam
+		altsyncram_component.clock_enable_input_a = "BYPASS",
+		altsyncram_component.clock_enable_output_a = "BYPASS",
+		altsyncram_component.init_file = "4.colour.mif",
+		altsyncram_component.intended_device_family = "Cyclone V",
+		altsyncram_component.lpm_hint = "ENABLE_RUNTIME_MOD=NO",
+		altsyncram_component.lpm_type = "altsyncram",
+		altsyncram_component.numwords_a = 60,
+		altsyncram_component.operation_mode = "SINGLE_PORT",
+		altsyncram_component.outdata_aclr_a = "NONE",
+		altsyncram_component.outdata_reg_a = "UNREGISTERED",
+		altsyncram_component.power_up_uninitialized = "FALSE",
+		altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
+		altsyncram_component.widthad_a = 6,
+		altsyncram_component.width_a = 3,
+		altsyncram_component.width_byteena_a = 1;
+
+
+endmodule
+
+// synopsys translate_off
+`timescale 1 ps / 1 ps
+// synopsys translate_on
+module Ram5 (
+	address,
+	clock,
+	data,
+	wren,
+	q);
+
+	input	[5:0]  address;
+	input	  clock;
+	input	[2:0]  data;
+	input	  wren;
+	output	[2:0]  q;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_off
+`endif
+	tri1	  clock;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_on
+`endif
+
+	wire [2:0] sub_wire0;
+	wire [2:0] q = sub_wire0[2:0];
+
+	altsyncram	altsyncram_component (
+				.address_a (address),
+				.clock0 (clock),
+				.data_a (data),
+				.wren_a (wren),
+				.q_a (sub_wire0),
+				.aclr0 (1'b0),
+				.aclr1 (1'b0),
+				.address_b (1'b1),
+				.addressstall_a (1'b0),
+				.addressstall_b (1'b0),
+				.byteena_a (1'b1),
+				.byteena_b (1'b1),
+				.clock1 (1'b1),
+				.clocken0 (1'b1),
+				.clocken1 (1'b1),
+				.clocken2 (1'b1),
+				.clocken3 (1'b1),
+				.data_b (1'b1),
+				.eccstatus (),
+				.q_b (),
+				.rden_a (1'b1),
+				.rden_b (1'b1),
+				.wren_b (1'b0));
+	defparam
+		altsyncram_component.clock_enable_input_a = "BYPASS",
+		altsyncram_component.clock_enable_output_a = "BYPASS",
+		altsyncram_component.init_file = "5.colour.mif",
+		altsyncram_component.intended_device_family = "Cyclone V",
+		altsyncram_component.lpm_hint = "ENABLE_RUNTIME_MOD=NO",
+		altsyncram_component.lpm_type = "altsyncram",
+		altsyncram_component.numwords_a = 60,
+		altsyncram_component.operation_mode = "SINGLE_PORT",
+		altsyncram_component.outdata_aclr_a = "NONE",
+		altsyncram_component.outdata_reg_a = "UNREGISTERED",
+		altsyncram_component.power_up_uninitialized = "FALSE",
+		altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
+		altsyncram_component.widthad_a = 6,
+		altsyncram_component.width_a = 3,
+		altsyncram_component.width_byteena_a = 1;
+
+
+endmodule
+
+// synopsys translate_off
+`timescale 1 ps / 1 ps
+// synopsys translate_on
+module Ram6 (
+	address,
+	clock,
+	data,
+	wren,
+	q);
+
+	input	[5:0]  address;
+	input	  clock;
+	input	[2:0]  data;
+	input	  wren;
+	output	[2:0]  q;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_off
+`endif
+	tri1	  clock;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_on
+`endif
+
+	wire [2:0] sub_wire0;
+	wire [2:0] q = sub_wire0[2:0];
+
+	altsyncram	altsyncram_component (
+				.address_a (address),
+				.clock0 (clock),
+				.data_a (data),
+				.wren_a (wren),
+				.q_a (sub_wire0),
+				.aclr0 (1'b0),
+				.aclr1 (1'b0),
+				.address_b (1'b1),
+				.addressstall_a (1'b0),
+				.addressstall_b (1'b0),
+				.byteena_a (1'b1),
+				.byteena_b (1'b1),
+				.clock1 (1'b1),
+				.clocken0 (1'b1),
+				.clocken1 (1'b1),
+				.clocken2 (1'b1),
+				.clocken3 (1'b1),
+				.data_b (1'b1),
+				.eccstatus (),
+				.q_b (),
+				.rden_a (1'b1),
+				.rden_b (1'b1),
+				.wren_b (1'b0));
+	defparam
+		altsyncram_component.clock_enable_input_a = "BYPASS",
+		altsyncram_component.clock_enable_output_a = "BYPASS",
+		altsyncram_component.init_file = "6.colour.mif",
+		altsyncram_component.intended_device_family = "Cyclone V",
+		altsyncram_component.lpm_hint = "ENABLE_RUNTIME_MOD=NO",
+		altsyncram_component.lpm_type = "altsyncram",
+		altsyncram_component.numwords_a = 60,
+		altsyncram_component.operation_mode = "SINGLE_PORT",
+		altsyncram_component.outdata_aclr_a = "NONE",
+		altsyncram_component.outdata_reg_a = "UNREGISTERED",
+		altsyncram_component.power_up_uninitialized = "FALSE",
+		altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
+		altsyncram_component.widthad_a = 6,
+		altsyncram_component.width_a = 3,
+		altsyncram_component.width_byteena_a = 1;
+
+
+endmodule
+
+// synopsys translate_off
+`timescale 1 ps / 1 ps
+// synopsys translate_on
+module Ram7 (
+	address,
+	clock,
+	data,
+	wren,
+	q);
+
+	input	[5:0]  address;
+	input	  clock;
+	input	[2:0]  data;
+	input	  wren;
+	output	[2:0]  q;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_off
+`endif
+	tri1	  clock;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_on
+`endif
+
+	wire [2:0] sub_wire0;
+	wire [2:0] q = sub_wire0[2:0];
+
+	altsyncram	altsyncram_component (
+				.address_a (address),
+				.clock0 (clock),
+				.data_a (data),
+				.wren_a (wren),
+				.q_a (sub_wire0),
+				.aclr0 (1'b0),
+				.aclr1 (1'b0),
+				.address_b (1'b1),
+				.addressstall_a (1'b0),
+				.addressstall_b (1'b0),
+				.byteena_a (1'b1),
+				.byteena_b (1'b1),
+				.clock1 (1'b1),
+				.clocken0 (1'b1),
+				.clocken1 (1'b1),
+				.clocken2 (1'b1),
+				.clocken3 (1'b1),
+				.data_b (1'b1),
+				.eccstatus (),
+				.q_b (),
+				.rden_a (1'b1),
+				.rden_b (1'b1),
+				.wren_b (1'b0));
+	defparam
+		altsyncram_component.clock_enable_input_a = "BYPASS",
+		altsyncram_component.clock_enable_output_a = "BYPASS",
+		altsyncram_component.init_file = "7.colour.mif",
+		altsyncram_component.intended_device_family = "Cyclone V",
+		altsyncram_component.lpm_hint = "ENABLE_RUNTIME_MOD=NO",
+		altsyncram_component.lpm_type = "altsyncram",
+		altsyncram_component.numwords_a = 60,
+		altsyncram_component.operation_mode = "SINGLE_PORT",
+		altsyncram_component.outdata_aclr_a = "NONE",
+		altsyncram_component.outdata_reg_a = "UNREGISTERED",
+		altsyncram_component.power_up_uninitialized = "FALSE",
+		altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
+		altsyncram_component.widthad_a = 6,
+		altsyncram_component.width_a = 3,
+		altsyncram_component.width_byteena_a = 1;
+
+
+endmodule
+
+// synopsys translate_off
+`timescale 1 ps / 1 ps
+// synopsys translate_on
+module Ram8 (
+	address,
+	clock,
+	data,
+	wren,
+	q);
+
+	input	[5:0]  address;
+	input	  clock;
+	input	[2:0]  data;
+	input	  wren;
+	output	[2:0]  q;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_off
+`endif
+	tri1	  clock;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_on
+`endif
+
+	wire [2:0] sub_wire0;
+	wire [2:0] q = sub_wire0[2:0];
+
+	altsyncram	altsyncram_component (
+				.address_a (address),
+				.clock0 (clock),
+				.data_a (data),
+				.wren_a (wren),
+				.q_a (sub_wire0),
+				.aclr0 (1'b0),
+				.aclr1 (1'b0),
+				.address_b (1'b1),
+				.addressstall_a (1'b0),
+				.addressstall_b (1'b0),
+				.byteena_a (1'b1),
+				.byteena_b (1'b1),
+				.clock1 (1'b1),
+				.clocken0 (1'b1),
+				.clocken1 (1'b1),
+				.clocken2 (1'b1),
+				.clocken3 (1'b1),
+				.data_b (1'b1),
+				.eccstatus (),
+				.q_b (),
+				.rden_a (1'b1),
+				.rden_b (1'b1),
+				.wren_b (1'b0));
+	defparam
+		altsyncram_component.clock_enable_input_a = "BYPASS",
+		altsyncram_component.clock_enable_output_a = "BYPASS",
+		altsyncram_component.init_file = "8.colour.mif",
+		altsyncram_component.intended_device_family = "Cyclone V",
+		altsyncram_component.lpm_hint = "ENABLE_RUNTIME_MOD=NO",
+		altsyncram_component.lpm_type = "altsyncram",
+		altsyncram_component.numwords_a = 60,
+		altsyncram_component.operation_mode = "SINGLE_PORT",
+		altsyncram_component.outdata_aclr_a = "NONE",
+		altsyncram_component.outdata_reg_a = "UNREGISTERED",
+		altsyncram_component.power_up_uninitialized = "FALSE",
+		altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
+		altsyncram_component.widthad_a = 6,
+		altsyncram_component.width_a = 3,
+		altsyncram_component.width_byteena_a = 1;
+
+
+endmodule
+
+
+// synopsys translate_off
+`timescale 1 ps / 1 ps
+// synopsys translate_on
+module Ram9 (
+	address,
+	clock,
+	data,
+	wren,
+	q);
+
+	input	[5:0]  address;
+	input	  clock;
+	input	[2:0]  data;
+	input	  wren;
+	output	[2:0]  q;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_off
+`endif
+	tri1	  clock;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_on
+`endif
+
+	wire [2:0] sub_wire0;
+	wire [2:0] q = sub_wire0[2:0];
+
+	altsyncram	altsyncram_component (
+				.address_a (address),
+				.clock0 (clock),
+				.data_a (data),
+				.wren_a (wren),
+				.q_a (sub_wire0),
+				.aclr0 (1'b0),
+				.aclr1 (1'b0),
+				.address_b (1'b1),
+				.addressstall_a (1'b0),
+				.addressstall_b (1'b0),
+				.byteena_a (1'b1),
+				.byteena_b (1'b1),
+				.clock1 (1'b1),
+				.clocken0 (1'b1),
+				.clocken1 (1'b1),
+				.clocken2 (1'b1),
+				.clocken3 (1'b1),
+				.data_b (1'b1),
+				.eccstatus (),
+				.q_b (),
+				.rden_a (1'b1),
+				.rden_b (1'b1),
+				.wren_b (1'b0));
+	defparam
+		altsyncram_component.clock_enable_input_a = "BYPASS",
+		altsyncram_component.clock_enable_output_a = "BYPASS",
+		altsyncram_component.init_file = "9.colour.mif",
+		altsyncram_component.intended_device_family = "Cyclone V",
+		altsyncram_component.lpm_hint = "ENABLE_RUNTIME_MOD=NO",
+		altsyncram_component.lpm_type = "altsyncram",
+		altsyncram_component.numwords_a = 60,
+		altsyncram_component.operation_mode = "SINGLE_PORT",
+		altsyncram_component.outdata_aclr_a = "NONE",
+		altsyncram_component.outdata_reg_a = "UNREGISTERED",
+		altsyncram_component.power_up_uninitialized = "FALSE",
+		altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
+		altsyncram_component.widthad_a = 6,
+		altsyncram_component.width_a = 3,
+		altsyncram_component.width_byteena_a = 1;
+
+
+endmodule
+
 
 // synopsys translate_off
 `timescale 1 ps / 1 ps
