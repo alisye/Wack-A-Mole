@@ -55,8 +55,18 @@ module test(KEY, CLOCK_50,
 		defparam VGA.BITS_PER_COLOUR_CHANNEL = 1;
 		defparam VGA.BACKGROUND_IMAGE = "black.mif";
 		
-	localparam  temp_val = 40'b00000_00010_00100_01000_10000_10011_10100_00100;
+	reg [4:0] counter;
+		
+	wire [39:0]  temp_val = {counter [4:0] , 35'b00010_00100_01000_10000_10011_10100_00100};
 	wire slowed;
+	
+	always @(posedge slowed) begin
+		if(resetn == 1'b0 || counter == 5'd20)
+			counter <= 5'b0;
+		else 
+			counter <= counter + 1;
+	end
+	
 	RateDivider rd40(.CO(slowed), .Clock(CLOCK_50), .Areset(resetn));
 		
 	MoleAndScore mas(.x(x), .y(y), .col(colour), .plot(writeEn), .molePositions(temp_val), .total(16'b0), .score(16'b0), .CLOCK_40(slowed), .CLOCK_50(CLOCK_50), .reset(~resetn));
@@ -96,13 +106,56 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 	input CLOCK_50; //50MHz clock
 	input reset;
 	
-	localparam  STOP_VAL = 5'b01000;
+	localparam  STOP_VAL = 5'b01001,
+				TS = 5'b01000;
 	
 	reg [4:0] curr_obj; // 0 to STOP_VAL.
+	reg [4:0] prev_curr_obj;
 	reg [8:0] moleYX;
 	reg [8:0] pastmoleYX;
 	reg [4:0] currMoleShift;
 	reg go;
+	
+	reg [3:0] tsX;
+	reg [4:0] tsY;
+	reg [3:0] pasttsX;
+	reg [4:0] pasttsY;
+	reg [7:0] addressts;
+	
+	always @(posedge CLOCK_50) begin
+		if(reset == 1'b1 || go == 1'b0 || curr_obj[4:0] != TS)
+			begin
+			tsX <= 4'b0;
+			pasttsX <= 4'b0;
+			
+			tsY <= 5'b0;
+			pasttsY <= 5'b0;
+			
+			addressts <= 7'b0;
+			end
+		else if (go == 1'b1 && curr_obj[4:0] == TS && tsX == 4'd9)
+			begin
+			pasttsX <= tsX;
+			tsX <= 4'b0; //reset at max
+			
+			pasttsY <= tsY;
+			tsY <= tsY + 1'b1;
+			
+			addressts <= addressts + 1'b1;
+			end
+		else if (go == 1'b1 && curr_obj[4:0] == TS)
+			begin
+			pasttsX <= tsX;
+			tsX <= tsX + 1'b1; //incr if curr_obj is a TS scoreboard
+			
+			pasttsY <= tsY;
+			
+			addressts <= addressts + 1'b1;
+			end
+	end
+	
+	wire [2:0] delayedTS;
+	RamTS rts (.address(addressts), .clock(CLOCK_50), .data(3'b0), .wren(1'b0), .q(delayedTS));
 	
 	always @(*) begin
 		case (curr_obj)
@@ -135,22 +188,22 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 			go <= 1'b1;
 			plot <= 1'b0;
 			end
-		else if (curr_obj == STOP_VAL)
+		else if (curr_obj == STOP_VAL || pasttsX == 4'd9 && pasttsY == 5'd21)// cond b/f
 			begin
 			go <= 1'b0;
-			plot <= go;
+			plot <= 1'b0;
 			end
 		else
 			plot <= go;
 	end
 	
 	always @(posedge CLOCK_50) begin
-		if(reset == 1'b1 || go == 1'b0)
+		if(reset == 1'b1 || go == 1'b0 || curr_obj[4:3] != 2'b00)
 			begin
 			moleYX <= 8'b0;
 			pastmoleYX <= 8'b0;
 			end
-		else if (go == 1'b1 && curr_obj[4:3] == 2'b00 && moleYX == 9'b10100_1111)
+		else if (go == 1'b1 && curr_obj[4:3] == 2'b00 && moleYX == 9'b10011_1111)
 			begin
 			pastmoleYX <= moleYX;
 			moleYX <= 8'b0; //reset at max
@@ -165,15 +218,24 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 	always @(posedge CLOCK_50) begin
 		if(reset == 1'b1 || go == 1'b0)
 			curr_obj <= 5'b0;
-		else if (moleYX == 9'b10100_1111)
+		else if (moleYX == 9'b10011_1111)// counters zero out of their turn
 			curr_obj <= curr_obj + 1'b1;
-		//later add cases for 01000 and higher
+		else if (pasttsX == 4'd9 && pasttsY == 5'd21)
+			curr_obj <= curr_obj + 1'b1;
+		//later add cases for 01001 and higher
 	end 
+	
+	always @(posedge CLOCK_50) begin
+		if(reset == 1'b1 || go == 1'b0)
+			prev_curr_obj <= 5'b0;
+		else
+			prev_curr_obj <= curr_obj;
+	end
 	
 	always @(*) begin
 		if(curr_obj[4:3] == 2'b00)
 			begin
-				case(curr_obj[2:0])
+				case(prev_curr_obj[2:0])
 					3'b000: x = pastmoleYX[3:0] + 8'd2;
 					3'b001: x = pastmoleYX[3:0] + 8'd20;
 					3'b010: x = pastmoleYX[3:0] + 8'd38;
@@ -184,6 +246,8 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 					3'b111: x = pastmoleYX[3:0] + 8'd128;
 				endcase
 			end
+		else if(curr_obj[4:0] == TS)
+			x = 8'd58 + pasttsX;
 		else
 			x = 8'b0;
 	end
@@ -191,6 +255,8 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 	always @(*) begin
 		if(curr_obj[4:3] == 2'b00)
 				y [6:0]= 7'd100 + pastmoleYX[8:4];
+		else if(curr_obj[4:0] == TS)
+			y = 7'd20 + pasttsY;
 		else
 			y [6:0]= 7'b0;
 	end
@@ -198,6 +264,8 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 	always @(*) begin
 		if(curr_obj[4:3] == 2'b00)
 				col [2:0] = delayedMoleImage[2:0];
+		else if(curr_obj[4:0] == TS)
+			col [2:0] = delayedTS[2:0];
 		else
 			col [2:0] = 3'b0;
 	end
@@ -268,6 +336,76 @@ module Mole3Ram (
 		altsyncram_component.power_up_uninitialized = "FALSE",
 		altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
 		altsyncram_component.widthad_a = 10,
+		altsyncram_component.width_a = 3,
+		altsyncram_component.width_byteena_a = 1;
+
+
+endmodule
+
+// synopsys translate_off
+`timescale 1 ps / 1 ps
+// synopsys translate_on
+module RamTS (
+	address,
+	clock,
+	data,
+	wren,
+	q);
+
+	input	[7:0]  address;
+	input	  clock;
+	input	[2:0]  data;
+	input	  wren;
+	output	[2:0]  q;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_off
+`endif
+	tri1	  clock;
+`ifndef ALTERA_RESERVED_QIS
+// synopsys translate_on
+`endif
+
+	wire [2:0] sub_wire0;
+	wire [2:0] q = sub_wire0[2:0];
+
+	altsyncram	altsyncram_component (
+				.address_a (address),
+				.clock0 (clock),
+				.data_a (data),
+				.wren_a (wren),
+				.q_a (sub_wire0),
+				.aclr0 (1'b0),
+				.aclr1 (1'b0),
+				.address_b (1'b1),
+				.addressstall_a (1'b0),
+				.addressstall_b (1'b0),
+				.byteena_a (1'b1),
+				.byteena_b (1'b1),
+				.clock1 (1'b1),
+				.clocken0 (1'b1),
+				.clocken1 (1'b1),
+				.clocken2 (1'b1),
+				.clocken3 (1'b1),
+				.data_b (1'b1),
+				.eccstatus (),
+				.q_b (),
+				.rden_a (1'b1),
+				.rden_b (1'b1),
+				.wren_b (1'b0));
+	defparam
+		altsyncram_component.clock_enable_input_a = "BYPASS",
+		altsyncram_component.clock_enable_output_a = "BYPASS",
+		altsyncram_component.init_file = "TS.colour.mif",
+		altsyncram_component.intended_device_family = "Cyclone V",
+		altsyncram_component.lpm_hint = "ENABLE_RUNTIME_MOD=NO",
+		altsyncram_component.lpm_type = "altsyncram",
+		altsyncram_component.numwords_a = 220,
+		altsyncram_component.operation_mode = "SINGLE_PORT",
+		altsyncram_component.outdata_aclr_a = "NONE",
+		altsyncram_component.outdata_reg_a = "UNREGISTERED",
+		altsyncram_component.power_up_uninitialized = "FALSE",
+		altsyncram_component.read_during_write_mode_port_a = "NEW_DATA_NO_NBE_READ",
+		altsyncram_component.widthad_a = 8,
 		altsyncram_component.width_a = 3,
 		altsyncram_component.width_byteena_a = 1;
 
