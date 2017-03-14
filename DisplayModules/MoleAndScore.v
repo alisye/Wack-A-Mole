@@ -188,7 +188,7 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 			go <= 1'b1;
 			plot <= 1'b0;
 			end
-		else if (curr_obj == STOP_VAL || pasttsX == 4'd9 && pasttsY == 5'd21)// cond b/f
+		else if (prev_curr_obj == STOP_VAL)// cond b/f
 			begin
 			go <= 1'b0;
 			plot <= 1'b0;
@@ -220,7 +220,7 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 			curr_obj <= 5'b0;
 		else if (moleYX == 9'b10011_1111)// counters zero out of their turn
 			curr_obj <= curr_obj + 1'b1;
-		else if (pasttsX == 4'd9 && pasttsY == 5'd21)
+		else if (tsX == 4'd9 && tsY == 5'd21)
 			curr_obj <= curr_obj + 1'b1;
 		//later add cases for 01001 and higher
 	end 
@@ -233,7 +233,7 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 	end
 	
 	always @(*) begin
-		if(curr_obj[4:3] == 2'b00)
+		if(prev_curr_obj[4:3] == 2'b00)
 			begin
 				case(prev_curr_obj[2:0])
 					3'b000: x = pastmoleYX[3:0] + 8'd2;
@@ -246,25 +246,25 @@ module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOC
 					3'b111: x = pastmoleYX[3:0] + 8'd128;
 				endcase
 			end
-		else if(curr_obj[4:0] == TS)
+		else if(prev_curr_obj[4:0] == TS)
 			x = 8'd58 + pasttsX;
 		else
 			x = 8'b0;
 	end
 	
 	always @(*) begin
-		if(curr_obj[4:3] == 2'b00)
+		if(prev_curr_obj[4:3] == 2'b00)
 				y [6:0]= 7'd100 + pastmoleYX[8:4];
-		else if(curr_obj[4:0] == TS)
+		else if(prev_curr_obj[4:0] == TS)
 			y = 7'd20 + pasttsY;
 		else
 			y [6:0]= 7'b0;
 	end
 	
 	always @(*) begin
-		if(curr_obj[4:3] == 2'b00)
+		if(prev_curr_obj[4:3] == 2'b00)
 				col [2:0] = delayedMoleImage[2:0];
-		else if(curr_obj[4:0] == TS)
+		else if(prev_curr_obj[4:0] == TS)
 			col [2:0] = delayedTS[2:0];
 		else
 			col [2:0] = 3'b0;
