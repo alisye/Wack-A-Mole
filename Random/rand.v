@@ -1,5 +1,14 @@
-module rand (Rcount_reset, CLOCK_50, CLOCK_1Hz, Rload_lfsr, Rshift, ctrl);
-	//TODO
+module rand (Rreset, CLOCK_50, CLOCK_1Hz, Rload_lfsr, Rshift, ctrl, Rspeed);
+	input Rreset, CLOCK_1Hz, CLOCK_50, Rload_lfsr, Rshift, Rspeed;
+	output [7:0] ctrl;
+
+	wire [15:0] count;
+	counter16bit c16b(.count(count), .CLOCK_50(CLOCK_50), .reset(Rreset));
+	
+	wire rand_lfsr;
+	LFSR lfsr (.load_val(count), .Rload_lfsr(Rload_lfsr), .Rshift(Rshift), .CLOCK_50(CLOCK_50), .reset(Rreset), .out(rand_lfsr));
+	
+	controlSeq csq (.clock(CLOCK_50), .shift((Rspeed == 1'b1) CLOCK_1Hz ? 1'b1:), .load_val(rand_lfsr), .reset(Rreset), .ctrl(ctrl));
 endmodule
 
 module counter16bit (count, CLOCK_50, reset);
