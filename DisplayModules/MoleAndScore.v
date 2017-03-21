@@ -55,17 +55,15 @@ module test(KEY, CLOCK_50,
 		defparam VGA.BITS_PER_COLOUR_CHANNEL = 1;
 		defparam VGA.BACKGROUND_IMAGE = "black.mif";
 		
-	reg [4:0] counter;
+	wire [4:0] counter;
 		
 	wire [39:0]  temp_val = {counter [4:0] , 35'b00010_00100_01000_10000_10011_10100_00100};
 	wire slowed;
 	
-	always @(posedge slowed) begin
-		if(resetn == 1'b0 || counter == 5'd20)
-			counter <= 5'b0;
-		else 
-			counter <= counter + 1;
-	end
+	wire slower;
+	RateDivider2 rd1Hz(.CO(slower), .Clock(CLOCK_50), .Areset(resetn));
+	
+	testRL trl (~KEY[3], ~KEY[2], CLOCK_50, slower ,slowed, counter);
 	
 	wire [15:0] decimalcount;
 	DecimalCounter4Dig dc4d (.count(decimalcount), .clock(slowed), .reset(~KEY[1]));
@@ -75,6 +73,127 @@ module test(KEY, CLOCK_50,
 	MoleAndScore mas(.x(x), .y(y), .col(colour), .plot(writeEn), .molePositions(temp_val), .total(decimalcount), .score(16'b0001_0010_0011_0100), .CLOCK_40(slowed), .CLOCK_50(CLOCK_50), .reset(~resetn));
 	
 endmodule
+
+module testRL (reset, go, CLOCK_50, CLOCK_WAIT, CLOCK_RL, Mheight);
+	input reset, go, CLOCK_50, CLOCK_RL, CLOCK_WAIT;
+	
+	wire Mreset_height;
+	wire Mreset_wait;
+	wire Mheight_en;
+	wire Mheight_incr;
+	wire [2:0] Mwait;
+	output [4:0] Mheight;
+	
+	wire hiding;
+	
+	MoleRL  mrl(.Mwait(Mwait), .Mheight(Mheight), .CLOCK_WAIT(CLOCK_WAIT), .CLOCK_RL(CLOCK_RL), .Mreset_wait(Mreset_wait), .Mheight_en(Mheight_en), .Mreset_height(Mreset_height), .Mheight_incr(Mheight_incr));
+	MoleRLControlFSM mrlfsm (.Mgo(go), .reset(reset), .CLOCK_50(CLOCK_50), .hiding(hiding), .Mwait(Mwait), .Mheight(Mheight), .Mreset_wait(Mreset_wait), .Mheight_en(Mheight_en), .Mreset_height(Mreset_height), .Mheight_incr(Mheight_incr));
+endmodule
+
+module MoleRL (Mwait, Mheight, CLOCK_WAIT, CLOCK_RL, Mreset_wait, Mheight_en, Mreset_height, Mheight_incr);
+	input Mreset_height;
+	input Mreset_wait;
+	input Mheight_en;
+	input Mheight_incr;
+	input CLOCK_WAIT;
+	input CLOCK_RL;
+	
+	output reg [2:0] Mwait;
+	output reg [4:0] Mheight;
+	
+	always@(posedge CLOCK_WAIT, posedge Mreset_wait) begin
+		if(Mreset_wait == 1'b1)
+			Mwait <= 3'b0;
+		else
+			Mwait <= Mwait + 1'b1;
+	end
+	
+	always@(posedge CLOCK_RL, posedge Mreset_height) begin
+		if(Mreset_height == 1'b1)
+			Mheight <= 3'b0;
+		else
+			begin
+				if(Mheight_en == 1'b1 && Mheight_incr == 1'b1 && Mheight == 5'd20)
+					Mheight <= 5'd20;
+				else if (Mheight_en == 1'b1 && Mheight_incr == 1'b1)
+					Mheight <= Mheight + 1'b1;
+				else if(Mheight_en == 1'b1 && Mheight_incr == 1'b0 && Mheight == 5'b0)
+					Mheight <= 5'b0;
+				else if (Mheight_en == 1'b1 && Mheight_incr == 1'b0)
+					Mheight <= Mheight - 1'b1;
+			end
+	end
+
+endmodule
+
+module MoleRLControlFSM (Mgo, reset, CLOCK_50, hiding, Mwait, Mheight, Mreset_wait, Mheight_en, Mreset_height, Mheight_incr);
+	input [2:0] Mwait;
+	input [4:0] Mheight;
+	input reset;
+	input CLOCK_50;
+	input Mgo; //This mole should start to rise
+	
+	output reg Mreset_height;
+	output reg Mreset_wait;
+	output reg Mheight_en;
+	output reg Mheight_incr;
+	output reg hiding;
+	
+	reg [1:0] curr_state;
+	reg [1:0] next_state;
+	
+	localparam  A = 2'b00,
+				B = 2'b01,
+				C = 2'b11,
+				D = 2'b10;
+				
+	//Output
+	always@(*) begin
+		Mreset_height = 1'b0;
+		Mreset_wait = 1'b0;
+		Mheight_en = 1'b0;
+		Mheight_incr = 1'b0;
+		hiding = 1'b0;
+		
+		case (curr_state)
+			A:  begin
+					hiding = 1'b1;
+					Mreset_height = 1'b1;
+					Mreset_wait = 1'b1;
+				end
+			B:  begin
+					Mreset_wait = 1'b1;
+					Mheight_en = 1'b1;
+					Mheight_incr = 1'b1;
+				end 
+			D:  begin 
+					Mreset_wait = 1'b1;
+					Mheight_en = 1'b1;
+				end
+			//C stays all 0
+		endcase
+	end
+	
+	
+	//Next state
+	always @(*) begin
+		case(curr_state)
+			A: next_state = (Mgo == 1'b1) ? B:A;
+			B: next_state = (Mheight == 5'd20) ? C:B;
+			C: next_state = (Mwait == 3'b100) ? D:C;
+			D: next_state = (Mheight == 5'b0) ? A:D;
+		endcase 
+	end
+	
+	//State transitions
+	always @(posedge CLOCK_50) begin
+		if(reset == 1'b1)
+			curr_state <= A;
+		else 
+			curr_state <= next_state;
+	end
+	
+endmodule 
 
 module DecimalCounter4Dig(count, clock, reset);
 	output [15:0] count;
@@ -142,6 +261,26 @@ module RateDivider(CO, Clock, Areset);
 			count <= 21'd1249999;
 		else if (count == 21'd0)
 			count <= 21'd1249999;
+		else
+			count <= count - 1'b1;
+	end	
+endmodule
+
+//temporarily reused
+module RateDivider2(CO, Clock, Areset);
+	input Clock;
+	input Areset; // synchronous active low reset (resets to start corresp to mode)
+	output CO; // slowed clock output (1Hz for 50MHz input)
+	
+	reg [25:0] count; // 26 bits required.
+
+	assign CO = (count == 26'b0) ? 1'b1:1'b0;
+	
+	always @(posedge Clock) begin
+		if(Areset == 1'b0)
+			count <= 26'd49999999;
+		else if (count == 21'd0)
+			count <= 26'd49999999;
 		else
 			count <= count - 1'b1;
 	end	
