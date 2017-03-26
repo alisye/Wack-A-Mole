@@ -1,4 +1,4 @@
-module test(KEY, CLOCK_50,
+module test(SW, KEY, CLOCK_50,
 		// The ports below are for the VGA output.  Do not change.
 		VGA_CLK,   						//	VGA Clock
 		VGA_HS,							//	VGA H_SYNC
@@ -11,6 +11,7 @@ module test(KEY, CLOCK_50,
 		);
 	input [3:0]KEY;
 	input CLOCK_50;
+	input [9:0] SW;
 	// Declare your inputs and outputs here
 	// Do not change the following outputs
 	output			VGA_CLK;   				//	VGA Clock
@@ -55,15 +56,34 @@ module test(KEY, CLOCK_50,
 		defparam VGA.BITS_PER_COLOUR_CHANNEL = 1;
 		defparam VGA.BACKGROUND_IMAGE = "black.mif";
 		
-	wire [4:0] counter;
+		root(.SW(SW), .KEY(KEY), .CLOCK_50(CLOCK_50), .resetn(resetn), .x(x), .y(y), .colour(colour), .writeEn(writeEn));
 		
+	
+endmodule
+
+module root (SW, KEY, CLOCK_50, resetn, x, y, colour, writeEn);
+	input [3:0]KEY;
+	input CLOCK_50;
+	input [9:0] SW;
+	input resetn;
+	
+	output [7:0] x;
+	output [6:0] y;
+	output writeEn;
+	output [2:0] colour;
+	
+	wire [4:0] counter;
 	wire [39:0]  temp_val = {counter [4:0] , 35'b00010_00100_01000_10000_10011_10100_00100};
+	
 	wire slowed;
+	
+	wire reset_mole;
+	MoleWhackFSM mwfsm (.reset(resetn), .CLOCK_50(slowed), .switch(SW[0]) ,.mole_hit(reset_mole));
 	
 	wire slower;
 	RateDivider2 rd1Hz(.CO(slower), .Clock(CLOCK_50), .Areset(resetn));
 	
-	testRL trl (~KEY[3], ~KEY[2], CLOCK_50, slower ,slowed, counter);
+	testRL trl (.reset(reset_mole), .go(~KEY[2]), .CLOCK_50(CLOCK_50), .CLOCK_WAIT(slower) ,.CLOCK_RL(slowed), .Mheight(counter));
 	
 	wire [15:0] decimalcount;
 	DecimalCounter4Dig dc4d (.count(decimalcount), .clock(slowed), .reset(~KEY[1]));
@@ -71,6 +91,35 @@ module test(KEY, CLOCK_50,
 	RateDivider rd40(.CO(slowed), .Clock(CLOCK_50), .Areset(resetn));
 		
 	MoleAndScore mas(.x(x), .y(y), .col(colour), .plot(writeEn), .molePositions(temp_val), .total(decimalcount), .score(16'b0001_0010_0011_0100), .CLOCK_40(slowed), .CLOCK_50(CLOCK_50), .reset(~resetn));
+
+endmodule
+
+module MoleWhackFSM (reset, CLOCK_50, switch ,mole_hit);
+
+	input reset, CLOCK_50, switch;
+	output mole_hit;
+	
+	reg [1:0] state;
+	
+	localparam A = 2'b00, B = 2'b01, C = 2'b11;
+	
+	reg [1:0] next_state;
+	always @(*) begin
+		case (state)
+			A: next_state = (switch == 1'b1) ? B:A;
+			B: next_state = (switch == 1'b0) ? C:B;
+			C: next_state = A;
+		endcase
+	end
+	
+	always @(posedge CLOCK_50) begin
+		if (reset == 1'b0)
+			state <= A;
+		else 
+			state <= next_state;
+	end
+	
+	assign mole_hit = (state == C) ? 1'b1 : 1'b0;
 	
 endmodule
 
@@ -129,7 +178,7 @@ endmodule
 module MoleRLControlFSM (Mgo, reset, CLOCK_50, hiding, Mwait, Mheight, Mreset_wait, Mheight_en, Mreset_height, Mheight_incr);
 	input [2:0] Mwait;
 	input [4:0] Mheight;
-	input reset;
+	input reset; //active high
 	input CLOCK_50;
 	input Mgo; //This mole should start to rise
 	
