@@ -155,7 +155,8 @@ module control(y, KEY, CLOCK_50, CLOCK_1Hz, plot_en, level, Rload_lfsr, Rshift, 
 				E: next_state = (count480 == 9'd479) ? F:E;//Counter at 8*60 
 				F: next_state = (y == 7'd120) ? G: F;
 				G: next_state = (count60s == 6'd59) ? H:G;//counter at 60s
-				H: next_state = (level == 3'd4) ? I:B ;
+				H: next_state = (level == 3'd5) ? I:B ;
+				I: next_state = (KEY[0] == 1'b0) ? A:I;
             default:     next_state = A;
         endcase
     end // state_table
@@ -337,7 +338,7 @@ module datapath (plot, x, y, col, CLOCK_1Hz_out, CLOCK_50, Rload_lfsr, Rshift, R
 	end
 	
 	wire clock_wait;
-	assign clock_wait = (level == 3'b000) ? CLOCK_1Hz : ((level == 3'b001) ? CLOCK_4Hz : ((level == 3'b010) ? CLOCK_8Hz : ((level == 3'b011) ? CLOCK_16Hz : ((level == 3'b100) ? CLOCK_50 : 1'b1))));
+	assign clock_wait = (level == 3'b000) ? CLOCK_1Hz : ((level == 3'b001) ? CLOCK_2Hz : ((level == 3'b010) ? CLOCK_4Hz : ((level == 3'b011) ? CLOCK_8Hz : ((level == 3'b100) ? CLOCK_16Hz : 1'b1))));
 	
 	wire [39:0] Mheight;
 	wire [15:0] totalRise;
