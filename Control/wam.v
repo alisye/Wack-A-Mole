@@ -56,11 +56,226 @@ module wam(SW, KEY, CLOCK_50,
 		defparam VGA.BITS_PER_COLOUR_CHANNEL = 1;
 		defparam VGA.BACKGROUND_IMAGE = "black.mif";
 		
-		datapath dp (.plot(writeEn), .x(x), .y(y), .col(colour), .CLOCK_50(CLOCK_50), .Rload_lfsr(~KEY[2]), .Rshift(1'b1), .Rspeed(1'b1), .Rreset(~KEY[1]), .RateDivreset(~KEY[1]), .Wreset(~KEY[1]), .SW(SW), .incr_level(1'b0), .reset_level(KEY[1]), .CReset_score(~KEY[1]), .CReset_moles(~KEY[1]), .Cenable_ctrl(1'b1), .Gmas_reset(~KEY[1]), .Glev_reset(SW[9]), .GVideo_source({1'b0, SW[9]}));
+		full f (.SW(SW), .KEY(KEY), .CLOCK_50(CLOCK_50), .x(x), .y(y), .col(colour), .writeEn(writeEn));
+endmodule
+
+module full(SW, KEY, CLOCK_50, x, y, col, writeEn);
+	input [9:0] SW;
+	input [3:0] KEY;
+	input CLOCK_50;
+	
+	output [7:0] x;
+	output [6:0] y;
+	output [2:0] col;
+	output writeEn;
+
+	wire  CLOCK_1Hz;
+	wire  plot_en;
+	wire  [2:0] level;
+	wire  Rload_lfsr;
+	wire  Rshift;
+	wire  Rspeed;
+	wire  Rreset;
+	wire  RateDivreset;
+	wire  Wreset;
+	wire  incr_level;
+	wire  reset_level;
+	wire  CReset_score;
+	wire  CReset_moles;
+	wire  Cenable_ctrl;
+	wire  Gmas_reset;
+	wire  Glev_reset;
+	wire  [1:0] GVideo_source;
+	wire  Gclear_reset;
+	wire plot;
+	wire [2:0] colour;
+	
+	assign col = colour;
+		
+	assign writeEn = plot & plot_en;
+		
+	datapath dp (.plot(plot), .x(x), .y(y), .col(colour), .CLOCK_50(CLOCK_50), .Rload_lfsr(Rload_lfsr), .Rshift(Rshift), .Rspeed(Rspeed), .Rreset(Rreset), .RateDivreset(RateDivreset), .Wreset(Wreset), .SW(SW), .incr_level(incr_level), .reset_level(reset_level), .CReset_score(CReset_score), .CReset_moles(CReset_moles), .Cenable_ctrl(Cenable_ctrl), .Gmas_reset(Gmas_reset), .Glev_reset(Glev_reset), .GVideo_source(GVideo_source), .CLOCK_1Hz_out(CLOCK_1Hz), .level(level), .Gclear_reset(Gclear_reset));
+	control ct (.y(y), .KEY(KEY), .CLOCK_50(CLOCK_50), .CLOCK_1Hz(CLOCK_1Hz), .plot_en(plot_en), .level(level), .Rload_lfsr(Rload_lfsr), .Rshift(Rshift), .Rspeed(Rspeed), .Rreset(Rreset), .RateDivreset(RateDivreset), .Wreset(Wreset), .incr_level(incr_level), .reset_level(reset_level), .CReset_score(CReset_score), .CReset_moles(CReset_moles), .Cenable_ctrl(Cenable_ctrl), .Gmas_reset(Gmas_reset), .Glev_reset(Glev_reset), .GVideo_source(GVideo_source), .Gclear_reset(Gclear_reset));
 		
 endmodule
 
-module datapath (plot, x, y, col, CLOCK_50, Rload_lfsr, Rshift, Rspeed, Rreset, RateDivreset, Wreset, SW, incr_level, reset_level, CReset_score, CReset_moles, Cenable_ctrl, Gmas_reset, Glev_reset, GVideo_source);
+module control(y, KEY, CLOCK_50, CLOCK_1Hz, plot_en, level, Rload_lfsr, Rshift, Rspeed, Rreset, RateDivreset, Wreset, incr_level, reset_level, CReset_score, CReset_moles, Cenable_ctrl, Gmas_reset, Glev_reset, GVideo_source, Gclear_reset);
+	input CLOCK_50;
+	input CLOCK_1Hz;
+	input [6:0] y;
+	input [3:0] KEY;
+	input [2:0] level;
+	
+	output reg Rload_lfsr; //Active high, load clock val into lfsr
+	output reg Rshift; //Active high. Shift lfsr val's into control seq's
+	output reg Rspeed; //Speed to shift control seq's (1 for 1Hz, 0 for 50MHz)
+	output reg Rreset; //Reset random circuits. Active high
+	output reg RateDivreset; //Reset rate dividers. Active high
+	output reg Wreset; //Reset Mole WHACK FSM's. Active high
+	output reg incr_level; //Increments level on L to H transition
+	output reg reset_level; //Active high reset of level.
+	output reg CReset_score; //Active high reset of total and score
+	output reg CReset_moles; //Active high reset of mole position
+	output reg Cenable_ctrl; //Zero connects ctrl to 0 in mole score circuits.
+	output reg Gmas_reset; //Active high Mole And Score graphics reset;
+	output reg Glev_reset; //Active ***!!LOW!!*** level graphics reset.
+	output reg [1:0] GVideo_source; //0 for MAS, 1 for LEV, 2 for CLR
+	output reg Gclear_reset; //Active high reset of clear
+	output reg plot_en;
+	
+	reg [3:0] curr_state;
+	reg [3:0] next_state;
+	
+	reg reset_count60s;
+	wire [5:0] count60s;
+	counter60s c60s (.CLOCK_1Hz(CLOCK_1Hz), .out(count60s), .reset(reset_count60s));
+	
+	reg reset_count480;
+	wire [8:0] count480;
+	counter480s c480s (.CLOCK_50(CLOCK_50), .out(count480), .reset(reset_count480));
+	
+	localparam  B = 4'b0000,
+				C = 4'b0100,
+				D = 4'b0101,
+				E = 4'b1101,
+				F = 4'b1111,
+				G = 4'b1011,
+				H = 4'b1000,
+				I = 4'b1001,//Set to same as 1010
+				A = 4'b0001;
+				
+	// Next state logic aka our state table
+    always@(*)
+    begin: state_table 
+            case (curr_state)
+                A: next_state = B;
+				B: next_state = (y == 7'd120) ? C: B;
+				C: next_state = (KEY[1] == 1'b0) ? D: C;
+				D: next_state = E;
+				E: next_state = (count480 == 9'd479) ? F:E;//Counter at 8*60 
+				F: next_state = (y == 7'd120) ? G: F;
+				G: next_state = (count60s == 6'd59) ? H:G;//counter at 60s
+				H: next_state = (level == 3'd4) ? I:B ;
+            default:     next_state = A;
+        endcase
+    end // state_table
+	
+	// Output logic aka all of our datapath control signals
+    always @(*)
+    begin: enable_signals
+        // By default make all our signals 0
+        Rload_lfsr = 1'b0; 
+		Rshift = 1'b0; 
+		Rspeed = 1'b0; 
+		Rreset = 1'b1; 
+		RateDivreset = 1'b0; //Default do not reset
+		Wreset = 1'b1; 
+		incr_level = 1'b0; 
+		reset_level = 1'b0; //Default do not reset level 
+		CReset_score = 1'b0; //Default do not reset score
+		CReset_moles = 1'b1; 
+		Cenable_ctrl = 1'b0; 
+		Gmas_reset = 1'b1; 
+		Glev_reset = 1'b0; //Active low
+		GVideo_source = 2'b10; 
+		Gclear_reset = 1'b1;
+		plot_en = 1'b0;
+		
+		reset_count60s = 1'b1;
+		reset_count480 = 1'b1;
+
+        case (curr_state)
+            A: begin
+                CReset_score = 1'b1;
+				RateDivreset = 1'b1;
+				reset_level = 1'b1;
+                end
+            B: begin
+                plot_en = 1'b1;
+				Gclear_reset = 1'b0;
+                end
+            C: begin
+				plot_en = 1'b1;
+				Glev_reset = 1'b1; //Release reset
+                Rreset = 1'b0;
+				GVideo_source = 2'b01; 
+                end
+            D: begin
+				Rreset = 1'b0;
+                Rload_lfsr = 1'b1;
+                end
+            E: begin
+                Rreset = 1'b0;
+				Rshift = 1'b1;
+				reset_count480 = 1'b0;
+				end
+			F: begin 
+                Rreset = 1'b0;
+				plot_en = 1'b1;
+				Gclear_reset = 1'b0;
+				Rspeed = 1'b1;
+				end
+			G: begin  
+                Rreset = 1'b0;
+				Rspeed = 1'b1;
+				Rshift = 1'b1;
+				plot_en = 1'b1;
+				Gmas_reset = 1'b0;
+				GVideo_source = 2'b00; 
+				Cenable_ctrl = 1'b1;
+				Wreset = 1'b0;
+				CReset_moles = 1'b0;
+				reset_count60s = 1'b0;
+				end
+			H: begin  
+                incr_level = 1'b1;
+				end
+			I: begin 
+                //nothing (preserve score)
+				end
+			default:
+				begin 
+				//nothing (preserve score)
+				end 
+        endcase
+    end // enable_signals
+   
+    // current_state registers
+    always@(posedge CLOCK_50)
+    begin: state_FFs
+        if(!KEY[0])
+            curr_state <= A;
+        else
+            curr_state <= next_state;
+    end // state_FFS
+	
+endmodule
+
+module counter60s(CLOCK_1Hz, out, reset);
+	input reset, CLOCK_1Hz;
+	output reg [5:0] out;
+	
+	always @(posedge reset, posedge CLOCK_1Hz) begin
+		if(reset == 1'b1)
+			out <= 6'b0;
+		else 
+			out <= out + 1'b1;
+	end
+endmodule 
+
+module counter480s(CLOCK_50, out, reset);
+	input reset, CLOCK_50;
+	output reg [8:0] out;
+	
+	always @(posedge reset, posedge CLOCK_50) begin
+		if(reset == 1'b1)
+			out <= 9'b0;
+		else 
+			out <= out + 1'b1;
+	end
+endmodule 
+
+module datapath (plot, x, y, col, CLOCK_1Hz_out, CLOCK_50, Rload_lfsr, Rshift, Rspeed, Rreset, RateDivreset, Wreset, SW, incr_level, reset_level, CReset_score, CReset_moles, Cenable_ctrl, Gmas_reset, Glev_reset, GVideo_source, Gclear_reset, level);
 	input CLOCK_50;
 	input Rload_lfsr; //Active high, load clock val into lfsr
 	input Rshift; //Active high. Shift lfsr val's into control seq's
@@ -68,7 +283,7 @@ module datapath (plot, x, y, col, CLOCK_50, Rload_lfsr, Rshift, Rspeed, Rreset, 
 	input Rreset; //Reset random circuits. Active high
 	input RateDivreset; //Reset rate dividers. Active high
 	input Wreset; //Reset Mole WHACK FSM's. Active high
-	input [7:0] SW; //Switches
+	input [9:0] SW; //Switches
 	input incr_level; //Increments level on L to H transition
 	input reset_level; //Active high reset of level.
 	input CReset_score; //Active high reset of total and score
@@ -78,16 +293,19 @@ module datapath (plot, x, y, col, CLOCK_50, Rload_lfsr, Rshift, Rspeed, Rreset, 
 	input Cenable_ctrl; //Zero connects ctrl to 0 in mole score circuits.
 	input Gmas_reset; //Active high Mole And Score graphics reset;
 	input Glev_reset; //Active ***!!LOW!!*** level graphics reset.
-	input [2:0] GVideo_source; //0 for MAS, 1 for LEV, 2 for CLR
+	input [1:0] GVideo_source; //0 for MAS, 1 for LEV, 2 for CLR
+	input Gclear_reset; //Active high reset of clear
 	
 	
 	output reg plot;
 	output reg [7:0] x;
 	output reg [6:0] y;
 	output reg [2:0] col;
+	output CLOCK_1Hz_out;
 	
 	wire CLOCK_1Hz;
 	RateDivider1Hz rd1hz(.CO(CLOCK_1Hz), .Clock(CLOCK_50), .Areset(RateDivreset));
+	assign CLOCK_1Hz_out = CLOCK_1Hz;
 	
 	wire CLOCK_2Hz;
 	RateDivider2Hz rd2hz(.CO(CLOCK_2Hz), .Clock(CLOCK_50), .Areset(RateDivreset));
@@ -110,7 +328,7 @@ module datapath (plot, x, y, col, CLOCK_50, Rload_lfsr, Rshift, Rspeed, Rreset, 
 	wire [7:0] mole_hit;
 	MoleWhackFSM8Way mwfsm8w (.reset(Wreset), .CLOCK_50(CLOCK_40Hz), .SW(SW) ,.mole_hit(mole_hit));
 	
-	reg [2:0] level;
+	output reg [2:0] level;
 	always @(posedge incr_level, posedge reset_level) begin 
 		if(reset_level)
 			level <= 3'b0;
@@ -137,9 +355,13 @@ module datapath (plot, x, y, col, CLOCK_50, Rload_lfsr, Rshift, Rspeed, Rreset, 
 	wire [7:0] x_lev;
 	wire [6:0] y_lev;
 	wire [2:0] col_lev;
-	LevelVGADisplay lvd (.x(x_lev), .y(y_lev), .col(col_lev), .plot(plot_lev), .level({1'b0, level}), .CLOCK_50(CLOCK_50), .reset(Glev_reset));
+	LevelVGADisplay lvd (.x(x_lev), .y(y_lev), .col(col_lev), .plot(plot_lev), .level({1'b0, level + 1'b1}), .CLOCK_50(CLOCK_50), .reset(Glev_reset));
 	
-	//TODO: Add clear module
+	wire [7:0] x_clr;
+	wire [6:0] y_clr;
+	wire [2:0] col_clr;
+	clear clear_VGA(.x(x_clr), .y(y_clr), .col(col_clr), .reset(Gclear_reset), .CLOCK_50(CLOCK_50));
+
 	always @(*) begin 
 		if(GVideo_source == 2'b00) begin 
 			x = x_mas;
@@ -153,10 +375,16 @@ module datapath (plot, x, y, col, CLOCK_50, Rload_lfsr, Rshift, Rspeed, Rreset, 
 			plot = plot_lev;
 			col = col_lev;
 		end 
-		else begin 
-			x = 8'b0;
-			y = 7'b0;
-			plot = 1'b0;
+		else if (GVideo_source == 2'b10)begin 
+			x = x_clr;
+			y = y_clr;
+			plot = 1'b1;
+			col = col_clr;
+		end
+		else begin
+			x = 1'b0;
+			y = 1'b0;
+			plot = 1'b1;
 			col = 3'b100;
 		end
 	end
@@ -288,7 +516,7 @@ endmodule
 //
 //*************************
 module MoleWhackFSM8Way(reset, CLOCK_50, SW ,mole_hit);
-	input [7:0] SW;
+	input [9:0] SW;
 	input CLOCK_50, reset;
 	output [7:0]mole_hit;
 	
@@ -747,6 +975,34 @@ endmodule
 //
 //
 //**************************************
+
+module clear(x, y, col, reset, CLOCK_50);
+	input reset;
+	input CLOCK_50;
+	
+	output reg [7:0] x;
+	output reg [6:0] y;
+	output [2:0] col;
+	
+	assign col = 3'b0;
+
+	always @(posedge CLOCK_50) begin
+		if(reset == 1'b1)
+			x <= 8'b0;
+		else if (x == 8'b10100000)
+			x <= 8'b00000000;
+		else
+			x <= x + 1'b1;
+	end
+
+	always @(posedge CLOCK_50) begin
+		if(reset == 1'b1)
+			y <= 6'b0;
+		else if (x == 8'b10100000)
+			y <= y + 1'b1;
+	end
+
+endmodule
 
 module MoleAndScore(x, y, col, plot, molePositions, total, score, CLOCK_40, CLOCK_50, reset);
 	output reg [7:0] x;
