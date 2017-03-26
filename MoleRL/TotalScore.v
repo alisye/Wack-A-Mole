@@ -302,3 +302,21 @@ module MoleRLControlFSM (Mgo, reset, CLOCK_50, hiding, Mwait, Mheight, Mreset_wa
 	
 	
 	//Next state
+	always @(*) begin
+		case(curr_state)
+			A: next_state = (Mgo == 1'b1) ? B:A;
+			B: next_state = (Mheight == 5'd20) ? C:B;
+			C: next_state = (Mwait == 3'b100) ? D:C;
+			D: next_state = (Mheight == 5'b0) ? A:D;
+		endcase 
+	end
+	
+	//State transitions
+	always @(posedge CLOCK_50) begin
+		if(reset == 1'b1)
+			curr_state <= A;
+		else 
+			curr_state <= next_state;
+	end
+	
+endmodule 
