@@ -56,7 +56,7 @@ module wam(SW, KEY, CLOCK_50,
 		defparam VGA.BITS_PER_COLOUR_CHANNEL = 1;
 		defparam VGA.BACKGROUND_IMAGE = "black.mif";
 		
-		datapath dp (.plot(writeEn), .x(x), .y(y), .col(colour), .CLOCK_50(CLOCK_50), .Rload_lfsr(~KEY[2]), .Rshift(1'b1), .Rspeed(1'b1), .Rreset(~KEY[1]), .RateDivreset(~KEY[1]), .Wreset(~KEY[1]), .SW(SW), .incr_level(1'b0), .reset_level(KEY[1]), .CReset_score(~KEY[1]), .CReset_moles(~KEY[1]), .Cenable_ctrl(1'b1), .Gmas_reset(~KEY[1]), .Glev_reset(~KEY[1]), .GVideo_source(2'b0));
+		datapath dp (.plot(writeEn), .x(x), .y(y), .col(colour), .CLOCK_50(CLOCK_50), .Rload_lfsr(~KEY[2]), .Rshift(1'b1), .Rspeed(1'b1), .Rreset(~KEY[1]), .RateDivreset(~KEY[1]), .Wreset(~KEY[1]), .SW(SW), .incr_level(1'b0), .reset_level(KEY[1]), .CReset_score(~KEY[1]), .CReset_moles(~KEY[1]), .Cenable_ctrl(1'b1), .Gmas_reset(~KEY[1]), .Glev_reset(SW[9]), .GVideo_source({1'b0, SW[9]}));
 		
 endmodule
 
@@ -101,21 +101,9 @@ module datapath (plot, x, y, col, CLOCK_50, Rload_lfsr, Rshift, Rspeed, Rreset, 
 	wire CLOCK_16Hz;
 	RateDivider16Hz rd16hz(.CO(CLOCK_16Hz), .Clock(CLOCK_50), .Areset(RateDivreset));
 	
-	wire CLOCK_10Hz;
-	RateDivider10Hz rd10hz (.CO(CLOCK_10Hz), .Clock(CLOCK_50), .Areset(RateDivreset));
-	
-	wire CLOCK_20Hz;
-	RateDivider20Hz rd20hz (.CO(CLOCK_20Hz), .Clock(CLOCK_50), .Areset(RateDivreset));
-	
 	wire CLOCK_40Hz;
 	RateDivider40Hz rd40hz (.CO(CLOCK_40Hz), .Clock(CLOCK_50), .Areset(RateDivreset));
-	
-	wire CLOCK_80Hz;
-	RateDivider80Hz rd80hz (.CO(CLOCK_80Hz), .Clock(CLOCK_50), .Areset(RateDivreset));
-	
-	wire CLOCK_160Hz;
-	RateDivider160Hz rd160hz (.CO(CLOCK_160Hz), .Clock(CLOCK_50), .Areset(RateDivreset));
-	
+
 	wire [7:0] ctrl;
 	rand_module rm (.Rreset(Rreset), .CLOCK_50(CLOCK_50), .CLOCK_1Hz(CLOCK_1Hz), .Rload_lfsr(Rload_lfsr), .Rshift(Rshift), .Rspeed(Rspeed), .ctrl(ctrl));
 
@@ -131,7 +119,7 @@ module datapath (plot, x, y, col, CLOCK_50, Rload_lfsr, Rshift, Rspeed, Rreset, 
 	end
 	
 	wire clock_wait;
-	assign clock_wait = (level == 3'b000) ? CLOCK_2Hz : ((level == 3'b001) ? CLOCK_4Hz : ((level == 3'b010) ? CLOCK_8Hz : ((level == 3'b011) ? CLOCK_16Hz : ((level == 3'b100) ? CLOCK_50 : 1'b1))));
+	assign clock_wait = (level == 3'b000) ? CLOCK_1Hz : ((level == 3'b001) ? CLOCK_4Hz : ((level == 3'b010) ? CLOCK_8Hz : ((level == 3'b011) ? CLOCK_16Hz : ((level == 3'b100) ? CLOCK_50 : 1'b1))));
 	
 	wire [39:0] Mheight;
 	wire [15:0] totalRise;
@@ -275,44 +263,6 @@ module RateDivider16Hz(CO, Clock, Areset);
 	end	
 endmodule
 
-module RateDivider10Hz(CO, Clock, Areset);
-	input Clock;
-	input Areset; // synchronous active high reset (resets to start corresp to mode)
-	output CO; // slowed clock output (1Hz for 50MHz input)
-	
-	reg [23:0] count; // 24 bits required.
-
-	assign CO = (count == 24'b0) ? 1'b1:1'b0;
-	
-	always @(posedge Clock) begin
-		if(Areset == 1'b1)
-			count <= 24'd4999999;
-		else if (count == 24'd0)
-			count <= 24'd4999999;
-		else
-			count <= count - 1'b1;
-	end	
-endmodule
-
-module RateDivider20Hz(CO, Clock, Areset);
-	input Clock;
-	input Areset; // synchronous active high reset (resets to start corresp to mode)
-	output CO; // slowed clock output (1Hz for 50MHz input)
-	
-	reg [23:0] count; // 24 bits required.
-
-	assign CO = (count == 24'b0) ? 1'b1:1'b0;
-	
-	always @(posedge Clock) begin
-		if(Areset == 1'b1)
-			count <= 24'd2499999;
-		else if (count == 24'd0)
-			count <= 24'd2499999;
-		else
-			count <= count - 1'b1;
-	end	
-endmodule
-
 module RateDivider40Hz(CO, Clock, Areset);
 	input Clock;
 	input Areset; // synchronous active high reset (resets to start corresp to mode)
@@ -327,44 +277,6 @@ module RateDivider40Hz(CO, Clock, Areset);
 			count <= 21'd1249999;
 		else if (count == 21'd0)
 			count <= 21'd1249999;
-		else
-			count <= count - 1'b1;
-	end	
-endmodule
-
-module RateDivider80Hz(CO, Clock, Areset);
-	input Clock;
-	input Areset; // synchronous active high reset (resets to start corresp to mode)
-	output CO; // slowed clock output (80Hz for 50MHz input)
-	
-	reg [19:0] count; // 20 bits required.
-
-	assign CO = (count == 20'b0) ? 1'b1:1'b0;
-	
-	always @(posedge Clock) begin
-		if(Areset == 1'b1)
-			count <= 20'd624999;
-		else if (count == 20'd0)
-			count <= 20'd624999;
-		else
-			count <= count - 1'b1;
-	end	
-endmodule
-
-module RateDivider160Hz(CO, Clock, Areset);
-	input Clock;
-	input Areset; // synchronous active high reset (resets to start corresp to mode)
-	output CO; // slowed clock output (80Hz for 50MHz input)
-	
-	reg [19:0] count; // 20 bits required.
-
-	assign CO = (count == 20'b0) ? 1'b1:1'b0;
-	
-	always @(posedge Clock) begin
-		if(Areset == 1'b1)
-			count <= 20'd312499;
-		else if (count == 20'd0)
-			count <= 20'd312499;
 		else
 			count <= count - 1'b1;
 	end	
@@ -722,6 +634,13 @@ module MoleRLControlFSM (Mgo, reset, CLOCK_50, hiding, Mwait, Mheight, Mreset_wa
 			D:  begin 
 					Mreset_wait = 1'b1;
 					Mheight_en = 1'b1;
+				end
+			default: begin 
+				Mreset_height = 1'b0;
+				Mreset_wait = 1'b0;
+				Mheight_en = 1'b0;
+				Mheight_incr = 1'b0;
+				hiding = 1'b0;
 				end
 			//C stays all 0
 		endcase
