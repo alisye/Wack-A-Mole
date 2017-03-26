@@ -1,8 +1,8 @@
 module CompleteCount(reset, clock, clock_wait, clockrL, control, mole_hit, Mheight, totalScore, totalRise);
-	input reset;
+	input reset; //active high reset
 	input clock;
 	input clock_wait;
-	input clockrl;
+	input clockrL;
 	input [7:0] control;
 	input [7:0] mole_hit;
 
@@ -86,7 +86,7 @@ module CompleteCount(reset, clock, clock_wait, clockrL, control, mole_hit, Mheig
 	riseCount riseMole3(.count(riseCountToAdder3), .control(control[3]), .hiding(hiding[3]), .reset(reset));
 	riseCount riseMole4(.count(riseCountToAdder4), .control(control[4]), .hiding(hiding[4]), .reset(reset));
 	riseCount riseMole5(.count(riseCountToAdder5), .control(control[5]), .hiding(hiding[5]), .reset(reset));
-	riseCount riseMole6(.count(riseCountToAdder6), .control(contorl[6]), .hiding(hiding[6]), .reset(reset));
+	riseCount riseMole6(.count(riseCountToAdder6), .control(control[6]), .hiding(hiding[6]), .reset(reset));
 	riseCount riseMole7(.count(riseCountToAdder7), .control(control[7]), .hiding(hiding[7]), .reset(reset));
 
 	DecimalAdder4Dig riseAdd0(.A(riseCountToAdder0), .B(riseCountToAdder1), .out(AdderConnecter6));
@@ -103,7 +103,7 @@ endmodule
 //change clocks of both counters to the and of hiding and control
 module riseCount(count, control, hiding, reset);
 	output [15:0] count;
-	input reset, hiding, countrol;
+	input reset, hiding, control;
 	
 	DecimalCounter4Dig dc4g (.count(count), .clock(control && hiding), .reset(reset));
 endmodule
@@ -128,7 +128,7 @@ module DecimalCounter4Dig(count, clock, reset);
 	
 	assign count = {ones, tens, hundreds, thousands};
 	
-	always @(posedge clock) begin
+	always @(posedge clock, posedge reset) begin
 		if(reset == 1'b1)
 			ones <= 4'b0;
 		else if(ones == 4'd9)
@@ -137,7 +137,7 @@ module DecimalCounter4Dig(count, clock, reset);
 			ones <= ones + 1'b1;
 	end
 	
-	always @(posedge clock) begin
+	always @(posedge clock, posedge reset) begin
 		if(reset == 1'b1)
 			tens <= 4'b0;
 		else if(ones == 4'd9 && tens == 4'd9)
@@ -146,7 +146,7 @@ module DecimalCounter4Dig(count, clock, reset);
 			tens <= tens + 1'b1;
 	end
 	
-	always @(posedge clock) begin
+	always @(posedge clock, posedge reset) begin
 		if(reset == 1'b1 )
 			hundreds <= 4'b0;
 		else if({hundreds, tens, ones} == 12'b1001_1001_1001)
@@ -155,7 +155,7 @@ module DecimalCounter4Dig(count, clock, reset);
 			hundreds <= hundreds + 1'b1;
 	end
 	
-	always @(posedge clock) begin
+	always @(posedge clock, posedge reset) begin
 		if(reset == 1'b1)
 			thousands <= 4'b0;
 		if({thousands, hundreds, tens, ones} == 16'b1001_1001_1001_1001)
