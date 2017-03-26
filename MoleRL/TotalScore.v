@@ -1,5 +1,6 @@
-module CompleteCount(reset, clock, clock_wait, clockrL, control, mole_hit, Mheight, totalScore, totalRise);
-	input reset; //active high reset
+module CompleteCount(reset_scores, reset_moles, clock, clock_wait, clockrL, control, mole_hit, Mheight, totalScore, totalRise);
+	input reset_moles; //active high reset
+	input reset_scores; //asynchronous active high reset
 	input clock;
 	input clock_wait;
 	input clockrL;
@@ -52,25 +53,25 @@ module CompleteCount(reset, clock, clock_wait, clockrL, control, mole_hit, Mheig
 	wire [15:0] AdderConnecter10;
 	wire [15:0] AdderConnecter11;
 
-	rl mole0(.reset(reset), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[0]), .hiding(hiding[0]), .Mheight(Mheight0));
-	rl mole1(.reset(reset), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[1]), .hiding(hiding[1]), .Mheight(Mheight1));
-	rl mole2(.reset(reset), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[2]), .hiding(hiding[2]), .Mheight(Mheight2));
-	rl mole3(.reset(reset), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[3]), .hiding(hiding[3]), .Mheight(Mheight3));
-	rl mole4(.reset(reset), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[4]), .hiding(hiding[4]), .Mheight(Mheight4));
-	rl mole5(.reset(reset), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[5]), .hiding(hiding[5]), .Mheight(Mheight5));
-	rl mole6(.reset(reset), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[6]), .hiding(hiding[6]), .Mheight(Mheight6));
-	rl mole7(.reset(reset), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[7]), .hiding(hiding[7]), .Mheight(Mheight7));
+	rl mole0(.reset(reset_moles || mole_hit[0]), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[0]), .hiding(hiding[0]), .Mheight(Mheight0));
+	rl mole1(.reset(reset_moles || mole_hit[1]), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[1]), .hiding(hiding[1]), .Mheight(Mheight1));
+	rl mole2(.reset(reset_moles || mole_hit[2]), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[2]), .hiding(hiding[2]), .Mheight(Mheight2));
+	rl mole3(.reset(reset_moles || mole_hit[3]), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[3]), .hiding(hiding[3]), .Mheight(Mheight3));
+	rl mole4(.reset(reset_moles || mole_hit[4]), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[4]), .hiding(hiding[4]), .Mheight(Mheight4));
+	rl mole5(.reset(reset_moles || mole_hit[5]), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[5]), .hiding(hiding[5]), .Mheight(Mheight5));
+	rl mole6(.reset(reset_moles || mole_hit[6]), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[6]), .hiding(hiding[6]), .Mheight(Mheight6));
+	rl mole7(.reset(reset_moles || mole_hit[7]), .CLOCK_50(clock), .CLOCK_RL(clockrL), .CLOCK_WAIT(clock_wait), .go(control[7]), .hiding(hiding[7]), .Mheight(Mheight7));
 	
 	assign Mheight = {Mheight0, Mheight1, Mheight2, Mheight3, Mheight4, Mheight5, Mheight6, Mheight7};
 
-	scoreCount scoreMole0(.count(scoreCountToAdder0), .mole_hit(mole_hit[0]), .hiding(hiding[0]), .reset(reset));
-	scoreCount scoreMole1(.count(scoreCountToAdder1), .mole_hit(mole_hit[1]), .hiding(hiding[1]), .reset(reset));
-	scoreCount scoreMole2(.count(scoreCountToAdder2), .mole_hit(mole_hit[2]), .hiding(hiding[2]), .reset(reset));
-	scoreCount scoreMole3(.count(scoreCountToAdder3), .mole_hit(mole_hit[3]), .hiding(hiding[3]), .reset(reset));
-	scoreCount scoreMole4(.count(scoreCountToAdder4), .mole_hit(mole_hit[4]), .hiding(hiding[4]), .reset(reset));
-	scoreCount scoreMole5(.count(scoreCountToAdder5), .mole_hit(mole_hit[5]), .hiding(hiding[5]), .reset(reset));
-	scoreCount scoreMole6(.count(scoreCountToAdder6), .mole_hit(mole_hit[6]), .hiding(hiding[6]), .reset(reset));
-	scoreCount scoreMole7(.count(scoreCountToAdder7), .mole_hit(mole_hit[7]), .hiding(hiding[7]), .reset(reset));
+	scoreCount scoreMole0(.count(scoreCountToAdder0), .mole_hit(mole_hit[0]), .hiding(hiding[0]), .reset(reset_scores));
+	scoreCount scoreMole1(.count(scoreCountToAdder1), .mole_hit(mole_hit[1]), .hiding(hiding[1]), .reset(reset_scores));
+	scoreCount scoreMole2(.count(scoreCountToAdder2), .mole_hit(mole_hit[2]), .hiding(hiding[2]), .reset(reset_scores));
+	scoreCount scoreMole3(.count(scoreCountToAdder3), .mole_hit(mole_hit[3]), .hiding(hiding[3]), .reset(reset_scores));
+	scoreCount scoreMole4(.count(scoreCountToAdder4), .mole_hit(mole_hit[4]), .hiding(hiding[4]), .reset(reset_scores));
+	scoreCount scoreMole5(.count(scoreCountToAdder5), .mole_hit(mole_hit[5]), .hiding(hiding[5]), .reset(reset_scores));
+	scoreCount scoreMole6(.count(scoreCountToAdder6), .mole_hit(mole_hit[6]), .hiding(hiding[6]), .reset(reset_scores));
+	scoreCount scoreMole7(.count(scoreCountToAdder7), .mole_hit(mole_hit[7]), .hiding(hiding[7]), .reset(reset_scores));
 	
 	DecimalAdder4Dig scoreAdd0(.A(scoreCountToAdder0), .B(scoreCountToAdder1), .out(AdderConnecter0));
 	DecimalAdder4Dig scoreAdd1(.A(AdderConnecter0), .B(scoreCountToAdder2), .out(AdderConnecter1));
@@ -80,14 +81,14 @@ module CompleteCount(reset, clock, clock_wait, clockrL, control, mole_hit, Mheig
 	DecimalAdder4Dig scoreAdd5(.A(AdderConnecter4), .B(scoreCountToAdder6), .out(AdderConnecter5));
 	DecimalAdder4Dig scoreAdd6(.A(AdderConnecter5), .B(scoreCountToAdder7), .out(totalScore));
 
-	riseCount riseMole0(.count(riseCountToAdder0), .control(control[0]), .hiding(hiding[0]), .reset(reset));
-	riseCount riseMole1(.count(riseCountToAdder1), .control(control[1]), .hiding(hiding[1]), .reset(reset));
-	riseCount riseMole2(.count(riseCountToAdder2), .control(control[2]), .hiding(hiding[2]), .reset(reset));
-	riseCount riseMole3(.count(riseCountToAdder3), .control(control[3]), .hiding(hiding[3]), .reset(reset));
-	riseCount riseMole4(.count(riseCountToAdder4), .control(control[4]), .hiding(hiding[4]), .reset(reset));
-	riseCount riseMole5(.count(riseCountToAdder5), .control(control[5]), .hiding(hiding[5]), .reset(reset));
-	riseCount riseMole6(.count(riseCountToAdder6), .control(control[6]), .hiding(hiding[6]), .reset(reset));
-	riseCount riseMole7(.count(riseCountToAdder7), .control(control[7]), .hiding(hiding[7]), .reset(reset));
+	riseCount riseMole0(.count(riseCountToAdder0), .control(control[0]), .hiding(hiding[0]), .reset(reset_scores));
+	riseCount riseMole1(.count(riseCountToAdder1), .control(control[1]), .hiding(hiding[1]), .reset(reset_scores));
+	riseCount riseMole2(.count(riseCountToAdder2), .control(control[2]), .hiding(hiding[2]), .reset(reset_scores));
+	riseCount riseMole3(.count(riseCountToAdder3), .control(control[3]), .hiding(hiding[3]), .reset(reset_scores));
+	riseCount riseMole4(.count(riseCountToAdder4), .control(control[4]), .hiding(hiding[4]), .reset(reset_scores));
+	riseCount riseMole5(.count(riseCountToAdder5), .control(control[5]), .hiding(hiding[5]), .reset(reset_scores));
+	riseCount riseMole6(.count(riseCountToAdder6), .control(control[6]), .hiding(hiding[6]), .reset(reset_scores));
+	riseCount riseMole7(.count(riseCountToAdder7), .control(control[7]), .hiding(hiding[7]), .reset(reset_scores));
 
 	DecimalAdder4Dig riseAdd0(.A(riseCountToAdder0), .B(riseCountToAdder1), .out(AdderConnecter6));
 	DecimalAdder4Dig riseAdd1(.A(AdderConnecter6), .B(riseCountToAdder2), .out(AdderConnecter7));
